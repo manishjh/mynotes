@@ -5,121 +5,93 @@ use actix_web::{
     http::StatusCode,
     post,
     web::{self, Data},
-    Error, HttpRequest, HttpResponse, Responder,
+    Error, HttpRequest, HttpResponse, Responder, Result,
 };
-use chrono::NaiveDateTime;
-use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Note {
-    id: u64,
-    title: String,
-    data: String,
-    created_on: NaiveDateTime,
-    updated_on: NaiveDateTime,
-    user_id: u64,
+use crate::{
+    model::note::Note,
+    repository::notes_repo::{NotesRepository, Repository},
+};
+
+#[derive(Deserialize)]
+pub struct GetNotesRequest {
+    page_num: i32,
+    page_size: i32,
 }
 
 #[get("/")]
 pub async fn home() -> Result<HttpResponse, Error> {
     Ok(HttpResponse::build(StatusCode::OK)
         .content_type("text.html; charset=utf-8")
-        .body(include_str!("../templates/index.html")))
+        .body(format!("welcome to myNotes api")))
 }
+
 #[get("/api/notes")]
-pub async fn get_notes(req: HttpRequest) -> impl Responder {
-    let data = req.app_data::<Data<Arc<Mutex<Connection>>>>().unwrap();
+pub async fn get_notes(
+    req: HttpRequest,
+    get_params: web::Query<GetNotesRequest>,
+) -> Result<impl Responder> {
+    let data = req.app_data::<Data<Arc<Mutex<NotesRepository>>>>();
 
-    let con = data.lock().unwrap();
+    match data {
+        Some(d) => {
+            let repo = d.lock().unwrap();
 
-    let mut stmt = con.prepare("select * from notes").unwrap();
-
-    let notes = stmt
-        .query_map([], |row| {
-            Ok(Note {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                data: row.get(2)?,
-                created_on: row.get(3)?,
-                updated_on: row.get(4)?,
-                user_id: row.get(5)?,
-            })
-        })
-        .unwrap();
-
-    let mut str = String::new();
-
-    let mut notes_vec: Vec<Note> = Vec::new();
-
-    for n in notes {
-        match n {
-            Ok(note) => {
-                notes_vec.push(note.clone());
+            let notes_vec = repo.get_paged(get_params.page_num, get_params.page_size);
+            match notes_vec {
+                Some(notes) => {
+                    return Ok(web::Json(notes));
+                }
+                None => {
+                    return Ok(web::Json(Vec::new()));
+                }
             }
-            _ => str.push_str("..."),
         }
+        None => return Ok(web::Json(Vec::new())),
     }
-    return web::Json(notes_vec);
+}
+
+#[get("/api/notes/{id}")]
+pub async fn get_note_by_id(req: HttpRequest, note_id: web::Path<u64>) -> Result<impl Responder> {
+    let data = req.app_data::<Data<Arc<Mutex<NotesRepository>>>>();
+
+    match data {
+        Some(d) => {
+            let repo = d.lock().unwrap();
+
+            let note = repo.get(note_id.into_inner());
+            match note {
+                Some(n) => {
+                    return Ok(web::Json(n));
+                }
+                None => {
+                    return Ok(web::Json(Note::new()));
+                }
+            }
+        }
+        None => return Ok(web::Json(Note::new())),
+    }
 }
 
 #[post("/api/notes/add")]
 pub async fn add_note(req: HttpRequest, new_note: web::Json<Note>) -> impl Responder {
-    let data = req.app_data::<Data<Arc<Mutex<Connection>>>>().unwrap();
+    let data = req.app_data::<Data<Arc<Mutex<NotesRepository>>>>();
 
-    let con = data.lock().unwrap();
+    match data {
+        Some(d) => {
+            let repo = d.lock().unwrap();
 
-    match new_note.into_inner() {
-        note => {
-            let mut stmt = con
-                .prepare(
-                    format!(
-                        "INSERT INTO notes (title, data, user_id) values (\"{}\",\"{}\",\"{}\")",
-                        &note.title, &note.data, &note.user_id
-                    )
-                    .as_str(),
-                )
-                .unwrap();
-
-            match stmt.execute([]) {
-                Ok(val) => {
-                    if val > 0 {
-                        let mut stmt = con
-                            .prepare("select * from notes where id = (SELECT last_insert_rowid())")
-                            .unwrap();
-
-                        let notes = stmt
-                            .query_map([], |row| {
-                                Ok(Note {
-                                    id: row.get(0)?,
-                                    title: row.get(1)?,
-                                    data: row.get(2)?,
-                                    created_on: row.get(3)?,
-                                    updated_on: row.get(4)?,
-                                    user_id: row.get(5)?,
-                                })
-                            })
-                            .unwrap();
-                        for n in notes {
-                            match n {
-                                Ok(note) => {
-                                    return web::Json(note);
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
+            let note = repo.insert(new_note.into_inner());
+            match note {
+                Some(n) => {
+                    return Ok::<web::Json<Note>, Error>(web::Json(n));
                 }
-                _ => {}
+                None => {
+                    return Ok(web::Json(Note::new()));
+                }
             }
         }
+        None => return Ok(web::Json(Note::new())),
     }
-    return web::Json(Note {
-        id: 0,
-        title: "null".to_string(),
-        data: "null".to_string(),
-        created_on: NaiveDateTime::MIN,
-        updated_on: NaiveDateTime::MIN,
-        user_id: 0,
-    });
 }
