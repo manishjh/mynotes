@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use actix_web::{
-    get,
+    delete, get,
     http::StatusCode,
     post,
     web::{self, Data},
@@ -27,6 +27,7 @@ pub async fn home() -> Result<HttpResponse, Error> {
         .body(format!("welcome to myNotes api")))
 }
 
+/// get("/api/notes?page_num={i32}&page_size={i32}"")
 #[get("/api/notes")]
 pub async fn get_notes(
     req: HttpRequest,
@@ -51,7 +52,7 @@ pub async fn get_notes(
         None => return Ok(web::Json(Vec::new())),
     }
 }
-
+///get("/api/notes/{id}")
 #[get("/api/notes/{id}")]
 pub async fn get_note_by_id(req: HttpRequest, note_id: web::Path<u64>) -> Result<impl Responder> {
     let data = req.app_data::<Data<Arc<Mutex<NotesRepository>>>>();
@@ -74,6 +75,7 @@ pub async fn get_note_by_id(req: HttpRequest, note_id: web::Path<u64>) -> Result
     }
 }
 
+///post("/api/notes/add")
 #[post("/api/notes/add")]
 pub async fn add_note(req: HttpRequest, new_note: web::Json<Note>) -> impl Responder {
     let data = req.app_data::<Data<Arc<Mutex<NotesRepository>>>>();
@@ -93,5 +95,28 @@ pub async fn add_note(req: HttpRequest, new_note: web::Json<Note>) -> impl Respo
             }
         }
         None => return Ok(web::Json(Note::new())),
+    }
+}
+
+///delete("/api/notes/{id}")
+#[delete("/api/notes/{id}")]
+pub async fn remove_note_by_id(req: HttpRequest, note_id: web::Path<u64>) -> impl Responder {
+    let data = req.app_data::<Data<Arc<Mutex<NotesRepository>>>>();
+
+    match data {
+        Some(d) => {
+            let repo = d.lock().unwrap();
+
+            let note = repo.remove(note_id.into_inner());
+            match note {
+                Some(n) => {
+                    return Ok::<web::Json<bool>, Error>(web::Json(n));
+                }
+                None => {
+                    return Ok(web::Json(false));
+                }
+            }
+        }
+        None => return Ok(web::Json(false)),
     }
 }

@@ -31,6 +31,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_notes)
             .service(get_note_by_id)
             .service(add_note)
+            .service(remove_note_by_id)
     })
     .bind(("127.0.0.1", 8080))?
     .run()

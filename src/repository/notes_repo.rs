@@ -7,7 +7,7 @@ pub trait Repository<T> {
     fn get(&self, key: u64) -> Option<T>;
     fn insert(&self, val: T) -> Option<T>;
     fn get_paged(&self, page_num: i32, page_size: i32) -> Option<Vec<T>>;
-    fn remove(&self, key: u64) -> Option<u64>;
+    fn remove(&self, key: u64) -> Option<bool>;
 }
 
 pub struct NotesRepository {
@@ -177,7 +177,24 @@ impl Repository<Note> for NotesRepository {
         }
     }
 
-    fn remove(&self, key: u64) -> Option<u64> {
-        todo!()
+    fn remove(&self, key: u64) -> Option<bool> {
+        match &self.connection {
+            Some(con) => {
+                let mut stmt = con
+                    .prepare(format!("Delete from notes where id = {key}").as_str())
+                    .unwrap();
+
+                match stmt.execute([]) {
+                    Ok(val) => {
+                        if val > 0 {
+                            return Some(true);
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
+            None => None,
+        }
     }
 }
